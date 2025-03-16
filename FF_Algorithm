@@ -1,0 +1,78 @@
+import numpy as np
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split
+from skimage.feature import hog
+from skimage import color
+import cv2
+import os
+
+# Firefly Algorithm Functions
+def firefly_algorithm(cost_func, dim, n=10, alpha=0.5, beta=0.2, gamma=1.0, max_iter=50):
+    # Initialize fireflies randomly
+    fireflies = np.random.rand(n, dim)
+    intensities = np.array([cost_func(f) for f in fireflies])
+    
+    for t in range(max_iter):
+        for i in range(n):
+            for j in range(n):
+                if intensities[j] < intensities[i]:  # Move towards better fireflies
+                    r = np.linalg.norm(fireflies[i] - fireflies[j])
+                    beta_attractiveness = beta * np.exp(-gamma * r ** 2)
+                    fireflies[i] += beta_attractiveness * (fireflies[j] - fireflies[i]) + alpha * (np.random.rand(dim) - 0.5)
+                    fireflies[i] = np.clip(fireflies[i], 0, 1)
+                    intensities[i] = cost_func(fireflies[i])
+    
+    best_index = np.argmin(intensities)
+    return fireflies[best_index]
+
+# Feature Extraction (HOG)
+def extract_hog_features(image):
+    image = cv2.resize(image, (150, 150))
+    gray = color.rgb2gray(image)
+    features, _ = hog(gray, pixels_per_cell=(16, 16), cells_per_block=(2, 2), visualize=True)
+    return features
+
+# Load Dataset
+def load_dataset(path):
+    X, y = [], []
+    categories = ['benign', 'malignant']
+    
+    for label, category in enumerate(categories):
+        folder_path = os.path.join(path, category)
+        for img_name in os.listdir(folder_path):
+            img_path = os.path.join(folder_path, img_name)
+            image = cv2.imread(img_path)
+            features = extract_hog_features(image)
+            X.append(features)
+            y.append(label)
+    
+    return np.array(X), np.array(y)
+
+# Define Cost Function (for Firefly Optimization)
+def cost_function(firefly):
+    selected_features = np.where(firefly > 0.5, 1, 0)
+    X_selected = X_train[:, selected_features == 1]
+    
+    clf = SVC(kernel='linear')
+    clf.fit(X_selected, y_train)
+    predictions = clf.predict(X_test[:, selected_features == 1])
+    return 1 - accuracy_score(y_test, predictions)
+
+# Load dataset
+path = '/content/drive/MyDrive/skin-cancer/train/'  # Change this to your actual dataset path
+X, y = load_dataset(path)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Apply Firefly Algorithm
+best_features = firefly_algorithm(cost_function, dim=X_train.shape[1])
+selected_features = np.where(best_features > 0.5, 1, 0)
+X_train_selected = X_train[:, selected_features == 1]
+X_test_selected = X_test[:, selected_features == 1]
+
+# Train Classifier with Selected Features
+clf = SVC(kernel='linear')
+clf.fit(X_train_selected, y_train)
+predictions = clf.predict(X_test_selected)
+accuracy = accuracy_score(y_test, predictions)
+print(f'Firefly Optimized SVM Accuracy: {accuracy:.4f}')
